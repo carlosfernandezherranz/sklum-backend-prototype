@@ -1,0 +1,14 @@
+{
+  "name": "sklum-backend-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright API + browser tests against the running SKLUM backend prototype (mock-backends:8081, backend:8080, Postgres:55432). Does not start the services — see ../README.md.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:demo": "DEMO=1 playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

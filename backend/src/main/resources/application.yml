@@ -1,0 +1,100 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sklum-backend
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    # Port 55432, not 5432 — this machine already has a native Postgres on 5432 for other
+    # projects; this avoids colliding with it rather than touching that service.
+    url: jdbc:postgresql://localhost:55432/sklum
+    username: sklum
+    password: sklum
+    hikari:
+      # V1's "ALTER DATABASE ... SET pg_trgm.word_similarity_threshold" only applies to
+      # connections opened AFTER that statement runs — but Hikari eagerly opens its first
+      # pooled connection(s) before Flyway even runs, so that connection can get stuck on
+      # Postgres's default threshold (0.6) for its whole pooled lifetime, causing search to
+      # intermittently return 0 results depending on which connection serves the query.
+      # connection-init-sql runs on every physical connection the instant it's opened, so this
+      # is correct regardless of Hikari/Flyway startup ordering.
+      connection-init-sql: "SET pg_trgm.word_similarity_threshold = 0.3"
+
+mocks:
+  base-url: http://localhost:8081
+  connect-timeout-ms: 500
+  read-timeout-ms: 2000
+
+promise:
+  precompute:
+    interval-ms: 600000
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      commerceCore:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 1500ms
+        slow-call-rate-threshold: 80
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+      payment:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+      carrierA:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 6
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 8s
+        register-health-indicator: true
+      carrierB:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 6
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 8s
+        register-health-indicator: true
+  retry:
+    instances:
+      commerceCoreRead:
+        max-attempts: 3
+        wait-duration: 100ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.RestClientException
+      carrierRead:
+        max-attempts: 2
+        wait-duration: 80ms
+        retry-exceptions:
+          - org.springframework.web.client.RestClientException
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics,circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.sklum.backend: INFO

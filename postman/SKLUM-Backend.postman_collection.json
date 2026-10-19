@@ -1,0 +1,352 @@
+{
+  "info": {
+    "name": "SKLUM Backend \u2014 prototype",
+    "description": "Search, PDP, Checkout (order saga with fault injection), and Ops for the SKLUM backend domain deep-dive prototype. See /openapi.yaml or the running app's /swagger-ui/index.html for full schema detail.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "mockUrl",
+      "value": "http://localhost:8081"
+    }
+  ],
+  "item": [
+    {
+      "name": "Home",
+      "item": [
+        {
+          "name": "GET /home \u2014 my deliveries widget",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/home"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "item": [
+        {
+          "name": "GET /search \u2014 typo-tolerant query",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/search?q=sofaa&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "sofaa"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /search \u2014 category term",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/search?q=mesa&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "mesa"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "PDP",
+      "item": [
+        {
+          "name": "GET /pdp/{sku} \u2014 default postal code",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/pdp/SOF-1001"
+          }
+        },
+        {
+          "name": "GET /pdp/{sku} \u2014 explicit postal code (Barcelona)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/pdp/SOF-1010?postalCode=08014",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pdp",
+                "SOF-1010"
+              ],
+              "query": [
+                {
+                  "key": "postalCode",
+                  "value": "08014"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Checkout \u2014 saga scenarios",
+      "item": [
+        {
+          "name": "POST /checkout \u2014 happy path (CONFIRMED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"SOF-1001\",\n  \"quantity\": 1,\n  \"postalCode\": \"28013\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /checkout \u2014 Idempotency-Key (run this one twice \u2014 same orderId both times, stock only consumed once)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "demo-idem-key-1"
+              }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"SOF-1001\",\n  \"quantity\": 1,\n  \"postalCode\": \"28013\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /checkout \u2014 simulateFailure=reserve (FAILED, no compensation needed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"SOF-1001\",\n  \"quantity\": 1,\n  \"postalCode\": \"28013\",\n  \"simulateFailure\": \"reserve\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /checkout \u2014 simulateFailure=payment (COMPENSATED: release reservation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"SOF-1001\",\n  \"quantity\": 1,\n  \"postalCode\": \"28013\",\n  \"simulateFailure\": \"payment\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /checkout \u2014 simulateFailure=confirm (COMPENSATED: refund + release)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"SOF-1001\",\n  \"quantity\": 1,\n  \"postalCode\": \"28013\",\n  \"simulateFailure\": \"confirm\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ops",
+      "item": [
+        {
+          "name": "GET /ops/summary",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/ops/summary"
+          }
+        },
+        {
+          "name": "GET /dashboard (HTML)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dashboard"
+          }
+        },
+        {
+          "name": "GET /actuator/health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "GET /actuator/prometheus",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/actuator/prometheus"
+          }
+        },
+        {
+          "name": "GET /v3/api-docs (live OpenAPI)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v3/api-docs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mock Backends (direct \u2014 debugging only)",
+      "item": [
+        {
+          "name": "GET /commerce-core/inventory/{sku}",
+          "request": {
+            "method": "GET",
+            "url": "{{mockUrl}}/commerce-core/inventory/SOF-1001"
+          }
+        },
+        {
+          "name": "GET /carrier/a/eta",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{mockUrl}}/carrier/a/eta?warehouseId=WH-MAD&zone=28",
+              "host": [
+                "{{mockUrl}}"
+              ],
+              "path": [
+                "carrier",
+                "a",
+                "eta"
+              ],
+              "query": [
+                {
+                  "key": "warehouseId",
+                  "value": "WH-MAD"
+                },
+                {
+                  "key": "zone",
+                  "value": "28"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /carrier/b/eta",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{mockUrl}}/carrier/b/eta?warehouseId=WH-MAD&zone=28",
+              "host": [
+                "{{mockUrl}}"
+              ],
+              "path": [
+                "carrier",
+                "b",
+                "eta"
+              ],
+              "query": [
+                {
+                  "key": "warehouseId",
+                  "value": "WH-MAD"
+                },
+                {
+                  "key": "zone",
+                  "value": "28"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /payment/charges?simulateFailure=true (force a decline directly)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mockUrl}}/payment/charges?simulateFailure=true",
+              "host": [
+                "{{mockUrl}}"
+              ],
+              "path": [
+                "payment",
+                "charges"
+              ],
+              "query": [
+                {
+                  "key": "simulateFailure",
+                  "value": "true"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"demo\",\n  \"amountCents\": 1000\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

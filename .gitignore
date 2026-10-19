@@ -1,0 +1,14 @@
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+
+# Node / Playwright (e2e-tests has its own, this covers the root too)
+node_modules/
+playwright-report/
+test-results/
+
+# OS
+.DS_Store

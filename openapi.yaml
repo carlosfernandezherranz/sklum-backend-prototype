@@ -1,0 +1,249 @@
+openapi: 3.0.3
+info:
+  title: SKLUM Backend — prototype
+  version: 0.1.0
+  description: >
+    Domain deep-dive prototype for the SKLUM App case study: search (Postgres trigram),
+    delivery-promise calculation (two-tier precompute + live inventory check), order
+    orchestration (saga with compensation), and operational observability.
+    This file is hand-written for offline reading / Postman import; the live, always-in-sync
+    version is served by the running app at /v3/api-docs (Swagger UI at /swagger-ui/index.html).
+servers:
+  - url: http://localhost:8080
+    description: backend (this prototype)
+
+tags:
+  - name: Home
+  - name: Search
+  - name: PDP
+  - name: Checkout
+  - name: Ops
+
+paths:
+  /home:
+    get:
+      tags: [Home]
+      summary: Home screen aggregation — "my deliveries" widget only
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HomeResponse" }
+
+  /search:
+    get:
+      tags: [Search]
+      summary: Fuzzy/typo-tolerant product search (pg_trgm, not Elasticsearch)
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+          example: "sofaa"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+
+  /pdp/{sku}:
+    get:
+      tags: [PDP]
+      summary: Product detail with a zone-level (coarse) delivery promise
+      parameters:
+        - name: sku
+          in: path
+          required: true
+          schema: { type: string }
+          example: "SOF-1001"
+        - name: postalCode
+          in: query
+          required: false
+          description: Defaults to a representative demo postal code if omitted
+          schema: { type: string }
+          example: "28013"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PdpResponse" }
+        "404":
+          description: No such SKU
+
+  /checkout:
+    post:
+      tags: [Checkout]
+      summary: Place an order — Reserve -> Charge -> Confirm, with compensation on failure
+      description: >
+        Set simulateFailure to "reserve", "payment", or "confirm" to force that step to fail
+        and observe the resulting compensation in the response's sagaSteps and in the
+        /ops/summary saga_steps counts. Pass Idempotency-Key to safely retry the same request
+        (e.g. after a client-side timeout) — a repeated key replays the first call's result
+        instead of reserving/charging/confirming a second time.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: >
+            Optional. A client-generated unique string (e.g. a UUID). The same key on a retry
+            returns the original saga's result unchanged, without re-running it. A second
+            request using a key whose first request is still in flight gets 409, not a race.
+          schema: { type: string }
+          example: "3f29c4de-6b9a-4e2a-9b7a-2e6a6a8f0c11"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckoutRequest" }
+            examples:
+              happyPath:
+                summary: Normal checkout, no injected failure
+                value: { sku: "SOF-1001", quantity: 1, postalCode: "28013" }
+              paymentFails:
+                summary: Force the payment step to fail (reservation gets released)
+                value: { sku: "SOF-1001", quantity: 1, postalCode: "28013", simulateFailure: "payment" }
+              confirmFails:
+                summary: Force the confirm step to fail (payment refunded, reservation released)
+                value: { sku: "SOF-1001", quantity: 1, postalCode: "28013", simulateFailure: "confirm" }
+      responses:
+        "200":
+          description: >
+            Always 200 — the saga's own outcome (CONFIRMED / FAILED / COMPENSATED) is in the
+            response body, since a failed saga step is an expected business outcome, not a
+            transport error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutResponse" }
+        "409":
+          description: >
+            Only when Idempotency-Key is reused while its first request is still in flight
+            (a genuine concurrent duplicate, not a retry of a finished one).
+
+  /ops/summary:
+    get:
+      tags: [Ops]
+      summary: Search latency, promise cache hit rate, saga outcome counts, circuit breaker states
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsSummary" }
+
+  /dashboard:
+    get:
+      tags: [Ops]
+      summary: Static ops dashboard (HTML) — polls /ops/summary
+      responses:
+        "200":
+          description: OK
+          content:
+            text/html: {}
+
+components:
+  schemas:
+    ProductSummary:
+      type: object
+      properties:
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        priceCents: { type: integer }
+
+    SearchResponse:
+      type: object
+      properties:
+        query: { type: string }
+        resultCount: { type: integer }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ProductSummary" }
+
+    ProductDetail:
+      type: object
+      properties:
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        priceCents: { type: integer }
+        currency: { type: string }
+
+    PromiseWindow:
+      type: object
+      description: A date range, never an exact date (locked in the business case).
+      properties:
+        minDays: { type: integer }
+        maxDays: { type: integer }
+        carrierId: { type: string }
+        warehouseId: { type: string, nullable: true }
+        granularity: { type: string, enum: [ZONE, POSTCODE] }
+        source: { type: string, description: "Human-readable provenance — precomputed vs. fallback vs. live-adjusted" }
+
+    PdpResponse:
+      type: object
+      properties:
+        product: { $ref: "#/components/schemas/ProductDetail" }
+        promise: { $ref: "#/components/schemas/PromiseWindow" }
+
+    CheckoutRequest:
+      type: object
+      required: [sku, quantity, postalCode]
+      properties:
+        sku: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        postalCode: { type: string }
+        simulateFailure:
+          type: string
+          nullable: true
+          enum: [reserve, payment, confirm]
+          description: Fault-injection flag — omit for a normal run.
+
+    CheckoutResponse:
+      type: object
+      properties:
+        orderId: { type: string }
+        status: { type: string, enum: [CONFIRMED, FAILED, COMPENSATED] }
+        promise: { $ref: "#/components/schemas/PromiseWindow" }
+        sagaSteps:
+          type: array
+          items: { type: string }
+          example: ["RESERVE:SUCCESS", "CHARGE:FAILED", "COMPENSATE_RESERVE:SUCCESS"]
+        message: { type: string }
+
+    DeliverySummary:
+      type: object
+      properties:
+        orderId: { type: string }
+        sku: { type: string }
+        status: { type: string }
+        promiseMinDays: { type: integer, nullable: true }
+        promiseMaxDays: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    HomeResponse:
+      type: object
+      properties:
+        myDeliveries:
+          type: array
+          items: { $ref: "#/components/schemas/DeliverySummary" }
+
+    OpsSummary:
+      type: object
+      properties:
+        searchP50Ms: { type: number }
+        searchP95Ms: { type: number }
+        searchRequestCount: { type: integer }
+        promiseCacheHits: { type: integer }
+        promiseCacheMisses: { type: integer }
+        promiseLookupRows: { type: integer }
+        orderStatusCounts: { type: object, additionalProperties: { type: integer } }
+        sagaStepCounts: { type: object, additionalProperties: { type: integer } }
+        circuitBreakerStates: { type: object, additionalProperties: { type: string } }

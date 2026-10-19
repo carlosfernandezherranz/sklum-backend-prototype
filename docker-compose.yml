@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sklum
+      POSTGRES_USER: sklum
+      POSTGRES_PASSWORD: sklum
+    ports:
+      - "55432:5432"
+    volumes:
+      - sklum-pg-data:/var/lib/postgresql/data
+    # Schema/seed are no longer init scripts here — Flyway (backend/src/main/resources/db/migration)
+    # runs them on the backend's startup instead, against whatever empty database this container provides.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sklum -d sklum"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  sklum-pg-data:

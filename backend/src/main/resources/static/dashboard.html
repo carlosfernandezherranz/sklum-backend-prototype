@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SKLUM Backend — Ops</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:#0F1419; --panel:#161D26; --fg:#E7EDF3; --muted:#8694A3;
+    --accent:#4FA8D8; --good:#3FBF72; --warn:#E2A33B; --bad:#E2593F; --line:#263241;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"Segoe UI",sans-serif; padding:24px 20px 60px; }
+  h1 { font-size:1.3rem; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:0.85rem; margin-bottom:24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-bottom:28px; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px 18px; }
+  .tile .label { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:6px; }
+  .tile .value { font-size:1.6rem; font-variant-numeric:tabular-nums; }
+  .tile .value small { font-size:0.9rem; color:var(--muted); font-weight:normal; }
+  section { margin-bottom:28px; }
+  h2 { font-size:0.95rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:0.9rem; }
+  th,td { text-align:left; padding:9px 14px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:0.75rem; text-transform:uppercase; }
+  tr:last-child td { border-bottom:none; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:0.75rem; font-weight:600; }
+  .pill.CLOSED, .pill.CONFIRMED, .pill.SUCCESS { background:rgba(63,191,114,0.15); color:var(--good); }
+  .pill.OPEN, .pill.FAILED { background:rgba(226,89,63,0.15); color:var(--bad); }
+  .pill.HALF_OPEN, .pill.COMPENSATED { background:rgba(226,163,59,0.15); color:var(--warn); }
+  .empty { color:var(--muted); font-size:0.85rem; padding:10px 0; }
+  .stale { color:var(--warn); font-size:0.78rem; margin-top:6px; }
+</style>
+</head>
+<body>
+  <h1>SKLUM Backend — Operations</h1>
+  <div class="sub">Polls <code>GET /ops/summary</code> every 3s. Support/Ops persona view — see Fig. 4 of the system design.</div>
+
+  <div class="grid" id="tiles"></div>
+
+  <section>
+    <h2>Order outcomes</h2>
+    <table><tbody id="orderStatusRows"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Saga steps (incl. compensations)</h2>
+    <table><tbody id="sagaStepRows"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Circuit breakers (Resilience4j)</h2>
+    <table><tbody id="breakerRows"></tbody></table>
+  </section>
+
+  <div class="stale" id="staleNote" style="display:none;">Could not reach /ops/summary — showing last known data.</div>
+
+<script>
+async function poll() {
+  try {
+    const res = await fetch('/ops/summary', { cache: 'no-store' });
+    if (!res.ok) throw new Error('bad status ' + res.status);
+    const data = await res.json();
+    render(data);
+    document.getElementById('staleNote').style.display = 'none';
+  } catch (e) {
+    document.getElementById('staleNote').style.display = 'block';
+  }
+}
+
+function render(d) {
+  const tiles = [
+    ['Search p50', d.searchP50Ms.toFixed(1) + '<small> ms</small>'],
+    ['Search p95', d.searchP95Ms.toFixed(1) + '<small> ms</small>'],
+    ['Search requests', d.searchRequestCount],
+    ['Promise cache hit rate', hitRate(d) + '<small> %</small>'],
+    ['Promise lookup rows', d.promiseLookupRows],
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map(([label, value]) =>
+    `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div></div>`).join('');
+
+  renderRows('orderStatusRows', d.orderStatusCounts, 'No orders yet — try POST /checkout.');
+  renderRows('sagaStepRows', d.sagaStepCounts, 'No saga activity yet.');
+
+  const breakerBody = document.getElementById('breakerRows');
+  const entries = Object.entries(d.circuitBreakerStates || {});
+  breakerBody.innerHTML = entries.length
+    ? entries.map(([name, state]) =>
+        `<tr><td>${name}</td><td><span class="pill ${state}">${state}</span></td></tr>`).join('')
+    : `<tr><td class="empty" colspan="2">No breaker activity recorded yet.</td></tr>`;
+}
+
+function hitRate(d) {
+  const total = d.promiseCacheHits + d.promiseCacheMisses;
+  return total === 0 ? '—' : ((d.promiseCacheHits / total) * 100).toFixed(0);
+}
+
+function renderRows(elementId, countsObj, emptyMessage) {
+  const body = document.getElementById(elementId);
+  const entries = Object.entries(countsObj || {});
+  body.innerHTML = entries.length
+    ? entries.map(([name, count]) =>
+        `<tr><td><span class="pill ${name}">${name}</span></td><td>${count}</td></tr>`).join('')
+    : `<tr><td class="empty" colspan="2">${emptyMessage}</td></tr>`;
+}
+
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>
